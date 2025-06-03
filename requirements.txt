@@ -1,0 +1,7 @@
+beautifulsoup4
+sentence-transformers
+faiss-cpu
+ctransformers
+fastapi
+uvicorn
+pydantic

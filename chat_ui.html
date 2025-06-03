@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>RAG Chat Interface</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 2rem;
+      background-color: #f4f4f4;
+    }
+    #chatBox {
+      width: 100%;
+      height: 300px;
+      overflow-y: auto;
+      background: white;
+      padding: 1rem;
+      border: 1px solid #ccc;
+      margin-bottom: 1rem;
+    }
+    .message {
+      margin-bottom: 1rem;
+    }
+    .user {
+      font-weight: bold;
+      color: blue;
+    }
+    .bot {
+      font-weight: bold;
+      color: green;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>RAG Chatbot</h1>
+  <div id="chatBox"></div>
+  <input type="text" id="userInput" placeholder="Ask a question..." style="width: 80%;">
+  <button onclick="sendMessage()">Send</button>
+
+  <script>
+    const chatBox = document.getElementById('chatBox');
+
+    function appendMessage(sender, text) {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = 'message';
+      msgDiv.innerHTML = `<span class="${sender}">${sender === 'user' ? 'You' : 'Bot'}:</span> ${text}`;
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('userInput');
+      const message = input.value.trim();
+      if (!message) return;
+
+      appendMessage('user', message);
+      input.value = '';
+
+      try {
+        const response = await fetch('http://localhost:8080/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ message })
+        });
+
+        const data = await response.json();
+        appendMessage('bot', data.response);
+      } catch (err) {
+        appendMessage('bot', 'Error: Could not reach server.');
+        console.error(err);
+      }
+    }
+  </script>
+
+</body>
+</html>
