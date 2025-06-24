@@ -7,10 +7,11 @@ from bs4 import BeautifulSoup
 from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
-from ctransformers import AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 from typing import List
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import torch
 
 # Initialize app
 app = FastAPI()
@@ -27,20 +28,26 @@ app.add_middleware(
 # === CONFIG ===
 HTML_DIR = './Dataset_ABA/en-GB'
 INDEX_PATH = './vector.index'
-MODEL_NAME = './model'
-MODEL_FILE = 'mistral-7b-instruct-v0.1.Q4_K_M.gguf'  # Change as needed
+MODEL_NAME = './model/phi-1_5'  # Path to downloaded Phi-1.5 model
 K = 3  # Number of relevant chunks to retrieve
 
 # === Load Models ===
 print("Loading embedding model...")
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-print("Loading Mistral LLM...")
-mistral = AutoModelForCausalLM.from_pretrained(
+print("Loading Phi-1.5 model...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
-    model_file=MODEL_FILE,
-    model_type="mistral",
-    gpu_layers=0  # Set to 0 for CPU only
+    torch_dtype=torch.float32,
+    device_map={"": "cpu"},
+    low_cpu_mem_usage=True
+)
+
+generator = pipeline(
+    'text-generation',
+    model=model,
+    tokenizer=tokenizer,
 )
 
 # === Load or Build FAISS Index ===
@@ -69,7 +76,6 @@ chunk_embeddings = embedding_model.encode(all_chunks)
 if os.path.exists(INDEX_PATH):
     print("Loading existing FAISS index...")
     index = faiss.read_index(INDEX_PATH)
-    print(index)
 else:
     print("Creating FAISS index...")
     d = chunk_embeddings[0].shape[0]
@@ -88,10 +94,8 @@ def retrieve_context(query: str, k=K) -> str:
 def build_prompt(context: str, query: str) -> str:
     base = "You are an assistant. Use the context below to answer the question. If the answer isn't in the context, say you don't know.\n\nContext:\n"
     question = f"\n\nQuestion: {query}\nAnswer:"
-
     max_chars = 2000  # ~512 tokens
     context_trimmed = context[:(max_chars - len(base + question))]
-
     return base + context_trimmed + question
 
 # === API Models ===
@@ -102,8 +106,10 @@ class Query(BaseModel):
 def chat(query: Query):
     context = retrieve_context(query.message)
     prompt = build_prompt(context, query.message)
-    response = mistral(prompt)
-    return {"response": response}
+    print("Generating response...")
+    output = generator(prompt, max_new_tokens=512, temperature=0.2)[0]['generated_text']
+    answer = output.split('Answer:')[-1].strip()
+    return {"response": answer}
 
 # === Run App ===
 if __name__ == "__main__":

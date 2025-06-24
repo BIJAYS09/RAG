@@ -5,6 +5,8 @@ from bs4 import BeautifulSoup
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings, StorageContext, load_index_from_storage
 from langchain_huggingface import HuggingFaceEmbeddings
 from llama_index.core import Document
+from rapidfuzz import fuzz
+from llama_index.core.node_parser import SentenceSplitter
 
 # Path to persist index
 INDEX_STORAGE_DIR = "./index_storage"
@@ -22,8 +24,10 @@ def load_clean_html(directory):
 
 # Load documents
 #documents = SimpleDirectoryReader("./Dataset_ABA/en-GB").load_data()
+parser = SentenceSplitter()
 documents = load_clean_html("./Dataset_ABA/en-GB")
-print(documents)
+splitter = SentenceSplitter(chunk_size=256, chunk_overlap=50)
+nodes = splitter.get_nodes_from_documents(documents)
 
 # Initialize local embedding model
 local_embed_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
@@ -41,29 +45,53 @@ if os.path.exists(INDEX_STORAGE_DIR):
     index = load_index_from_storage(storage_context)
 else:
     print("Building new index...")
-    index = VectorStoreIndex.from_documents(documents)
+    index = VectorStoreIndex(nodes)
     index.storage_context.persist(persist_dir=INDEX_STORAGE_DIR)
     print("Index saved.")
 
 # Retrieval function
-def retrieve_documents(query, index=index, top_k=5, similarity_threshold=0.5):
+def retrieve_documents(query, index=index, top_k=3, similarity_threshold=0.2, fuzzy_threshold=50):
     retriever = index.as_retriever(similarity_top_k=top_k)
     nodes = retriever.retrieve(query)
 
-    contexts = []
+    # Semantic vector matches
+    semantic_results = []
     for node in nodes:
         score = node.score if hasattr(node, 'score') else None
         if score is not None and score >= similarity_threshold:
-            contexts.append(node.get_text())
+            semantic_results.append((score, node.get_text()))
 
-    return contexts
+    # Fuzzy string matches
+    fuzzy_results = []
+    all_docs = index.docstore.docs.values()
+    for doc in all_docs:
+        text = doc.get_text()
+        similarity = fuzz.partial_ratio(query.lower(), text.lower())
+        if similarity >= fuzzy_threshold:
+            fuzzy_results.append((similarity / 100, text)) # Normalize to 0–1 to match vector scores
+
+    # Combine and sort both
+    combined = semantic_results + fuzzy_results
+    combined.sort(reverse=True, key=lambda x: x[0]) # sort by similarity score
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_contexts = []
+    for _, text in combined:
+        if text not in seen:
+            unique_contexts.append(text)
+            seen.add(text)
+        if len(unique_contexts) >= top_k:
+            break
+
+    return unique_contexts
 
 
 # Call Ollama model locally
 def call_ollama(prompt):
     try:
         result = subprocess.run(
-            ['ollama', 'run', 'llama2'],
+            ['ollama', 'run', 'llama3'],
             input=prompt,
             capture_output=True,
             text=True,
