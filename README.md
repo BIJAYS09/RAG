@@ -8,6 +8,5 @@ Install Packages from requirements.txt
     pip install -r requirements.txt
 
 Run file
-    app.py
-
-Open chat_ui.html for UI    
+    streamlit run app4.py
+   
