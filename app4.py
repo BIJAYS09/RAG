@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 from PIL import Image
-from rag_chatbot2 import rag_chatbot
+from rag_chatbot import rag_chatbot
 import re
 
 st.set_page_config(page_title="RAG Chatbot with Image Context", layout="wide")
